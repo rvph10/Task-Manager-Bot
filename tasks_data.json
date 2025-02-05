@@ -1,0 +1,13 @@
+{
+    "tasks": {
+        "1": {
+            "title": "Website Redesign",
+            "description": "Update the company website with new branding",
+            "date": "2025-03-01",
+            "status": "Not Started",
+            "assigned_user_ids": []
+        }
+    },
+    "task_counter": 1,
+    "task_channel_id": 1336830573007605884
+}
