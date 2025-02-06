@@ -5,7 +5,7 @@ from core.exceptions import InvalidTaskDataError
 def validate_date(date_str: str) -> Optional[datetime]:
     """Validate and convert date string to datetime object"""
     try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
+        return datetime.strptime(date_str, "%d-%m-%Y")
     except ValueError:
         raise InvalidTaskDataError("Invalid date format. Please use YYYY-MM-DD")
 

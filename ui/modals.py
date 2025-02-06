@@ -1,3 +1,5 @@
+from config import TASKS_FILE
+from core.persistence import TaskStore
 import discord
 from discord import TextStyle
 from discord.ui import Modal, TextInput
@@ -28,7 +30,7 @@ class CreateTaskModal(Modal):
         
         self.date_input = TextInput(
             label="Due Date (Optional)",
-            placeholder="YYYY-MM-DD",
+            placeholder="DD-MM-YYYY",
             required=False,
             max_length=10
         )
@@ -62,8 +64,9 @@ class CreateTaskModal(Modal):
             embed.add_field(name="Title", value=task.title, inline=False)
             embed.add_field(name="Description", value=task.description, inline=False)
             if task.due_date:
-                embed.add_field(name="Due Date", value=task.due_date.strftime("%Y-%m-%d"), inline=False)
+                embed.add_field(name="Due Date", value=task.due_date.strftime("%d-%m-%Y"), inline=False)
             
+            # Send response to interaction
             await interaction.response.send_message(embed=embed, ephemeral=True)
             
             # Update task board
@@ -75,7 +78,8 @@ class CreateTaskModal(Modal):
                 ephemeral=True
             )
         except Exception as e:
-            await interaction.response.send_message(
-                "❌ An error occurred while creating the task.", 
-                ephemeral=True
-            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ An error occurred while creating the task.", 
+                    ephemeral=True
+                )

@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List
 import discord
 from bot.constant import STATUS_EMOJIS, STATUS_COLORS
 from core.models import Task
@@ -22,77 +22,94 @@ class TaskBoardEmbeds:
         return embed
     
     @staticmethod
-    def create_status_section(status: TaskStatus, tasks: List[Task], guild: discord.Guild) -> discord.Embed:
-        emoji = STATUS_EMOJIS[status]
-        embed = discord.Embed(
-            title=f"{emoji} {status.value} ({len(tasks)})",
-            color=STATUS_COLORS[status]
-        )
+    def create_status_section(status: TaskStatus, tasks: List[Task], guild: discord.Guild) -> List[discord.Embed]:
+        """Create status section embeds, splitting into multiple embeds if needed"""
+        embeds = []
+        # Reduced to 3 tasks per embed since each task uses 7 fields max (4 main + 3 for thread)
+        tasks_per_embed = 3  
         
-        if not tasks:
-            embed.description = f"*No tasks are currently {status.value.lower()}*"
-            return embed
-        
-        for task in tasks:
-            # Format assigned users
-            if task.assigned_users:
-                # Check if task is assigned to everyone
-                all_members = set(member.id for member in guild.members if not member.bot)
-                task_users = set(task.assigned_users)
-                
-                if task_users.issuperset(all_members):
-                    assigned_users = "@everyone"
-                else:
-                    assigned_users = ", ".join([f"<@{user_id}>" for user_id in task.assigned_users])
-            else:
-                assigned_users = "*Unassigned*"
+        for i in range(0, len(tasks), tasks_per_embed):
+            chunk = tasks[i:i + tasks_per_embed]
             
-            # Format due date with warning emoji if close/overdue
-            due_date_str = ""
-            if task.due_date:
-                days_until_due = (task.due_date - datetime.now()).days
-                if days_until_due < 0:
-                    due_date_str = f"⚠️ **OVERDUE** ({abs(days_until_due)} days)"
-                elif days_until_due == 0:
-                    due_date_str = "⚠️ **DUE TODAY**"
-                elif days_until_due <= 2:
-                    due_date_str = f"⚠️ Due in {days_until_due} days"
+            emoji = STATUS_EMOJIS[status]
+            embed = discord.Embed(
+                title=f"{emoji} {status.value} ({len(tasks)})",
+                color=STATUS_COLORS[status]
+            )
+            
+            if not chunk:
+                embed.description = f"*No tasks are currently {status.value.lower()}*"
+                embeds.append(embed)
+                continue
+            
+            for task in chunk:
+                # Format due date
+                if task.due_date:
+                    days_until_due = (task.due_date - datetime.now()).days
+                    if days_until_due < 0:
+                        due_date_str = f"⚠️ **OVERDUE** ({abs(days_until_due)} days)"
+                    elif days_until_due == 0:
+                        due_date_str = "⚠️ **DUE TODAY**"
+                    elif days_until_due <= 2:
+                        due_date_str = f"⚠️ Due in {days_until_due} days"
+                    else:
+                        due_date_str = f"📅 Due {task.due_date.strftime('%Y-%m-%d')}"
                 else:
-                    due_date_str = f"📅 Due {task.due_date.strftime('%Y-%m-%d')}"
-            else:
-                due_date_str = "📅 No due date"
+                    due_date_str = "📅 No due date"
 
-            embed.add_field(
-                name=f"**__#{task.id} • {task.title}__**",
-                value=f"**Task description** :\u200b{task.description}",
-                inline=False
-            )
-            embed.add_field(
-                name="**Assigned To**",
-                value=assigned_users,
-                inline=True
-            )
-            embed.add_field(
-                name="**Due Date**",
-                value=due_date_str,
-                inline=True
-            )
-            embed.add_field(
-                name="**Status**",
-                value=task.status,
-                inline=True
-            )
-            if (task.id != tasks[-1].id):
-                embed.add_field(name="\u200b", value="\u200b", inline=False)
-            else:
-                embed.add_field(name="", value="\u200b", inline=False)
+                # Add task fields
+                embed.add_field(
+                    name=f"**__#{task.id} • {task.title}__**",
+                    value=f"**Task description** :\n```{task.description}```\n",
+                    inline=False
+                )
+                embed.add_field(
+                    name="**Assigned To**",
+                    value= ", ".join([f"<@{user_id}>" for user_id in task.assigned_users]) if len(task.assigned_users) > 1 else f"<@{task.assigned_users[0]}>" if len(task.assigned_users) > 0 else "Unassigned",
+                    inline=True
+                )
+                embed.add_field(
+                    name="**Due Date**",
+                    value=due_date_str,
+                    inline=True
+                )
+                embed.add_field(
+                    name="**Status**",
+                    value=task.status,
+                    inline=True
+                )
 
+                embed.set_thumbnail(url=f"https://placehold.co/400x400/2C2D31/FFFFFF/png?text=%23{len(embeds) + 1}")
+
+                # Add thread information if exists
+                if task.thread_id:
+                    thread = guild.get_thread(task.thread_id)
+                    if thread:  
+                        embed.add_field(
+                            name="💬 Discussion",
+                            value=f"[Go to thread]({thread.jump_url})",
+                            inline=True
+                        )
+                    else:
+                        embed.add_field(
+                            name="💬 Discussion",
+                            value="*Thread not found*",
+                            inline=True
+                        )
+
+                # Add separator only between tasks, not after the last one
+                if task != chunk[-1]:
+                    embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+            # Set footer for each embed
             embed.set_footer(
-                text="Use !task_update [task_id] to change the status of a task • Use !task_help for more commands",
-                icon_url="https://cdn.discordapp.com/app-icons/1336810436984836226/ce2f15ca0258cffeecfe1fc6276ee28d.png?size=512",
+                text="Use !task_update [task_id] to change status • Use !task_help for more commands",
+                icon_url="https://cdn.discordapp.com/app-icons/1336810436984836226/ce2f15ca0258cffeecfe1fc6276ee28d.png?size=512"
             )
-
-        return embed
+            
+            embeds.append(embed)
+        
+        return embeds
 
     @staticmethod
     def create_task_info(task: Task) -> discord.Embed:

@@ -38,6 +38,19 @@ class TaskManager:
         # Save task
         self.storage.add_task(task)
         return task
+    
+    async def update_task_thread(
+        self, 
+        task_id: int, 
+        thread_id: Optional[int], 
+        thread_creator_id: Optional[int]
+    ) -> Task:
+        """Update task thread information"""
+        return self.storage.update_task(
+            task_id,
+            thread_id=thread_id,
+            thread_creator_id=thread_creator_id
+        )
 
     async def update_task_status(self, task_id: int, status: TaskStatus) -> Task:
         """Update task status"""
@@ -109,7 +122,7 @@ class TaskManager:
         await channel.send(embed=header_embed, view=view)
         
         # Group tasks by status
-        tasks_by_status: Dict[TaskStatus, List[Task]] = {
+        tasks_by_status = {
             status: [] for status in TaskStatus
         }
         
@@ -120,5 +133,6 @@ class TaskManager:
         # Create status sections
         for status, tasks in tasks_by_status.items():
             if tasks:
-                embed = TaskBoardEmbeds.create_status_section(status, tasks, guild)
-                await channel.send(embed=embed)
+                embeds = TaskBoardEmbeds.create_status_section(status, tasks, guild)
+                for embed in embeds:
+                    await channel.send(embed=embed)
