@@ -1,11 +1,7 @@
-from config import TASKS_FILE
-from core.persistence import TaskStore
 import discord
 from discord import TextStyle
 from discord.ui import Modal, TextInput
 from core.exceptions import InvalidTaskDataError
-from datetime import datetime
-
 from utils.validator import validate_task_data
 
 class CreateTaskModal(Modal):
