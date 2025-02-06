@@ -22,7 +22,7 @@ class TaskBoardEmbeds:
         return embed
     
     @staticmethod
-    def create_status_section(status: TaskStatus, tasks: List[Task]) -> discord.Embed:
+    def create_status_section(status: TaskStatus, tasks: List[Task], guild: discord.Guild) -> discord.Embed:
         emoji = STATUS_EMOJIS[status]
         embed = discord.Embed(
             title=f"{emoji} {status.value} ({len(tasks)})",
@@ -35,11 +35,17 @@ class TaskBoardEmbeds:
         
         for task in tasks:
             # Format assigned users
-            assigned_users = (
-                ", ".join([f"<@{user_id}>" for user_id in task.assigned_users])
-                if task.assigned_users
-                else "*Unassigned*"
-            )
+            if task.assigned_users:
+                # Check if task is assigned to everyone
+                all_members = set(member.id for member in guild.members if not member.bot)
+                task_users = set(task.assigned_users)
+                
+                if task_users.issuperset(all_members):
+                    assigned_users = "@everyone"
+                else:
+                    assigned_users = ", ".join([f"<@{user_id}>" for user_id in task.assigned_users])
+            else:
+                assigned_users = "*Unassigned*"
             
             # Format due date with warning emoji if close/overdue
             due_date_str = ""
@@ -55,20 +61,37 @@ class TaskBoardEmbeds:
                     due_date_str = f"📅 Due {task.due_date.strftime('%Y-%m-%d')}"
             else:
                 due_date_str = "📅 No due date"
-            
-            # Create a compact but informative field
-            field_value = (
-                f"```{task.description[:100]}{'...' if len(task.description) > 100 else ''}```\n"
-                f"👥 **Assigned to:** {assigned_users}\n"
-                f"{due_date_str}"
-            )
-            
+
             embed.add_field(
-                name=f"#{task.id} • {task.title}",
-                value=field_value,
+                name=f"**__#{task.id} • {task.title}__**",
+                value=f"**Task description** :\u200b{task.description}",
                 inline=False
             )
-        
+            embed.add_field(
+                name="**Assigned To**",
+                value=assigned_users,
+                inline=True
+            )
+            embed.add_field(
+                name="**Due Date**",
+                value=due_date_str,
+                inline=True
+            )
+            embed.add_field(
+                name="**Status**",
+                value=task.status,
+                inline=True
+            )
+            if (task.id != tasks[-1].id):
+                embed.add_field(name="\u200b", value="\u200b", inline=False)
+            else:
+                embed.add_field(name="", value="\u200b", inline=False)
+
+            embed.set_footer(
+                text="Use !task_update [task_id] to change the status of a task • Use !task_help for more commands",
+                icon_url="https://cdn.discordapp.com/app-icons/1336810436984836226/ce2f15ca0258cffeecfe1fc6276ee28d.png?size=512",
+            )
+
         return embed
 
     @staticmethod

@@ -127,33 +127,49 @@ class TaskCommands(commands.Cog):
             assigned_users = []
             error_mentions = []
             
-            for mention in mentions:
-                try:
-                    user_id = int(mention.strip('<@!&>'))
-                    member = ctx.guild.get_member(user_id)
-                    
-                    if member is not None:
-                        assigned_users.append(user_id)
-                    else:
+            # Check for @everyone mention
+            everyone_mentioned = '@everyone' in mentions or any(mention.strip('<@!&>') == str(ctx.guild.default_role.id) for mention in mentions)
+            
+            if everyone_mentioned:
+                # Get all members in the guild
+                assigned_users = [member.id for member in ctx.guild.members if not member.bot]
+            else:
+                # Process individual mentions
+                for mention in mentions:
+                    try:
+                        user_id = int(mention.strip('<@!&>'))
+                        member = ctx.guild.get_member(user_id)
+                        
+                        if member is not None and not member.bot:
+                            assigned_users.append(user_id)
+                        else:
+                            error_mentions.append(mention)
+                    except (ValueError, AttributeError):
                         error_mentions.append(mention)
-                except (ValueError, AttributeError):
-                    error_mentions.append(mention)
 
             if not assigned_users:
-                await ctx.send("❌ No valid users mentioned. Please mention users with @username.", delete_after=10)
+                await ctx.send("❌ No valid users mentioned. Please mention users with @username or use @everyone.", delete_after=10)
                 return
 
             task = await self.bot.task_manager.assign_users(task_id, assigned_users)
             
+            # Create response embed
             embed = discord.Embed(
                 title="👥 Task Assigned",
                 description=f"Task #{task_id} has been assigned to users",
                 color=discord.Color.blue()
             )
-            embed.add_field(
-                name="Assigned Users",
-                value=", ".join(f"<@{user_id}>" for user_id in assigned_users)
-            )
+            
+            if everyone_mentioned:
+                embed.add_field(
+                    name="Assigned Users",
+                    value="@everyone"
+                )
+            else:
+                embed.add_field(
+                    name="Assigned Users",
+                    value=", ".join(f"<@{user_id}>" for user_id in assigned_users)
+                )
             
             if error_mentions:
                 embed.add_field(

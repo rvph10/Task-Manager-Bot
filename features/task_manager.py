@@ -120,5 +120,5 @@ class TaskManager:
         # Create status sections
         for status, tasks in tasks_by_status.items():
             if tasks:
-                embed = TaskBoardEmbeds.create_status_section(status, tasks)
+                embed = TaskBoardEmbeds.create_status_section(status, tasks, guild)
                 await channel.send(embed=embed)

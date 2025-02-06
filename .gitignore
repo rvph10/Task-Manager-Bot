@@ -2,3 +2,4 @@
 venv/*
 **/__pycache__/*
 tasks_data.json
+.env.dev
