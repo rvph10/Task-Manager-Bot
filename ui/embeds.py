@@ -73,11 +73,6 @@ class TaskBoardEmbeds:
                     value=due_date_str,
                     inline=True
                 )
-                embed.add_field(
-                    name="**Status**",
-                    value=task.status,
-                    inline=True
-                )
 
                 embed.set_thumbnail(url=f"https://placehold.co/400x400/2C2D31/FFFFFF/png?text=%23{len(embeds) + 1}")
 
@@ -88,12 +83,6 @@ class TaskBoardEmbeds:
                         embed.add_field(
                             name="💬 Discussion",
                             value=f"[Go to thread]({thread.jump_url})",
-                            inline=True
-                        )
-                    else:
-                        embed.add_field(
-                            name="💬 Discussion",
-                            value="*Thread not found*",
                             inline=True
                         )
 

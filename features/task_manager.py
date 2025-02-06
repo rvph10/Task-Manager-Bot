@@ -39,6 +39,29 @@ class TaskManager:
         self.storage.add_task(task)
         return task
     
+    async def verify_thread_exists(self, guild: discord.Guild, task: Task) -> bool:
+        """
+        Verify if a task's thread still exists and clean up if it doesn't
+        Returns True if thread exists, False if it was cleaned up
+        """
+        if not task.thread_id:
+            return False
+            
+        try:
+            thread = await guild.fetch_channel(task.thread_id)
+            return bool(thread)
+        except (discord.NotFound, discord.Forbidden):
+            # Thread doesn't exist or can't be accessed, clean up the task data
+            self.storage.update_task(
+                task.id,
+                thread_id=None,
+                thread_creator_id=None
+            )
+            return False
+        except Exception as e:
+            print(f"Error verifying thread {task.thread_id}: {e}")
+            return False
+    
     async def update_task_thread(
         self, 
         task_id: int, 
@@ -51,22 +74,78 @@ class TaskManager:
             thread_id=thread_id,
             thread_creator_id=thread_creator_id
         )
+    
+    async def get_task_guild(self) -> Optional[discord.Guild]:
+        """Helper method to find the guild where the task board exists"""
+        for guild in self.bot.guilds:
+            channel = guild.get_channel(self.storage.task_channel_id)
+            if channel:
+                return guild
+        return None
 
     async def update_task_status(self, task_id: int, status: TaskStatus) -> Task:
-        """Update task status"""
-        return self.storage.update_task(task_id, status=status.value)
+        """Update task status and delete thread if task is completed"""
+        task = self.storage.get_task(task_id)
+        guild = await self.get_task_guild()
+        
+        if guild:
+            # Verify thread still exists
+            thread_exists = await self.verify_thread_exists(guild, task)
+            
+            # If task is being marked as completed and has a valid thread, delete it
+            if status == TaskStatus.COMPLETED and thread_exists:
+                await self.delete_task_thread(guild, task.thread_id)
+                task = self.storage.update_task(
+                    task_id,
+                    status=status.value,
+                    thread_id=None,
+                    thread_creator_id=None
+                )
+            else:
+                # Just update the status
+                task = self.storage.update_task(task_id, status=status.value)
+        else:
+            # No guild found, just update the status
+            task = self.storage.update_task(task_id, status=status.value)
+            
+        return task
 
     async def assign_users(self, task_id: int, user_ids: List[int]) -> Task:
         """Assign users to a task"""
         return self.storage.update_task(task_id, assigned_users=user_ids)
 
     async def delete_task(self, task_id: int) -> Task:
-        """Delete a task"""
+        """Delete a task and its associated thread"""
+        task = self.storage.get_task(task_id)
+        guild = await self.get_task_guild()
+        
+        if guild and task.thread_id:
+            # Verify and delete thread if it exists
+            thread_exists = await self.verify_thread_exists(guild, task)
+            if thread_exists:
+                await self.delete_task_thread(guild, task.thread_id)
+            
+        # Delete the task from storage
         return self.storage.delete_task(task_id)
 
     async def get_task(self, task_id: int) -> Task:
         """Get a task by ID"""
         return self.storage.get_task(task_id)
+    
+    async def delete_task_thread(self, guild: discord.Guild, thread_id: int) -> None:
+        """Helper method to delete a task's thread"""
+        if thread_id:
+            try:
+                thread = await guild.fetch_channel(thread_id)
+                if thread:
+                    await thread.delete()
+            except discord.NotFound:
+                # Thread already deleted or not found
+                pass
+            except discord.Forbidden:
+                print(f"Missing permissions to delete thread {thread_id}")
+            except Exception as e:
+                print(f"Error deleting thread {thread_id}: {e}")
 
     async def setup_board_channel(self, guild: discord.Guild) -> discord.TextChannel:
         """Set up the task board channel"""
@@ -99,13 +178,19 @@ class TaskManager:
         return channel
 
     async def update_board(self, guild: discord.Guild) -> None:
-        """Update the task board display"""
+        """Update the task board display and verify all threads"""
         if not self.storage.task_channel_id:
             return
             
         channel = guild.get_channel(self.storage.task_channel_id)
         if not channel:
             return
+        
+        # Verify all task threads before updating the board
+        tasks = self.storage.get_all_tasks()
+        for task_id, task in tasks.items():
+            if task.thread_id:
+                await self.verify_thread_exists(guild, task)
         
         # Clear existing messages
         try:
