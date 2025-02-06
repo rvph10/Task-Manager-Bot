@@ -1,7 +1,7 @@
 import json
 import os
 from config import TASKS_FILE
-from tasks.models import Task
+from tasks.model import Task
 
 tasks = {}
 task_counter = 0
@@ -16,6 +16,8 @@ def load_tasks():
                 tasks = {int(k): Task.from_dict(v) for k, v in data.get('tasks', {}).items()}
                 task_counter = data.get('task_counter', 0)
                 task_channel_id = data.get('task_channel_id')
+        else:
+            print(f"File {TASKS_FILE} does not exist.")
     except Exception as e:
         print(f"Error loading tasks: {e}")
         tasks = {}
