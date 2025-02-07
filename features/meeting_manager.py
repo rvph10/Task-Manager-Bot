@@ -139,6 +139,8 @@ class MeetingManager:
                     
             except (discord.Forbidden, discord.HTTPException) as e:
                 print(f"Error sending attendance notifications: {e}")
+        meeting.reminder_sent = True
+        self.storage._save()
 
 
     async def update_board(self, guild: discord.Guild) -> None:
