@@ -1,5 +1,5 @@
 from dataclasses import dataclass, asdict
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 
 @dataclass
@@ -14,6 +14,11 @@ class Meeting:
     channel_id: Optional[int] = None
     calendar_event_id: Optional[str] = None
     reminder_sent: bool = False
+    rsvp_status: Dict[int, str] = None
+    
+    def __post_init__(self):
+        if self.rsvp_status is None:
+            self.rsvp_status = {}
     
     def to_dict(self) -> dict:
         data = asdict(self)

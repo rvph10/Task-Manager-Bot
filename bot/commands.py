@@ -581,7 +581,8 @@ class TaskCommands(commands.Cog):
                 duration=duration,
                 created_by=interaction.user.id,
                 participants=participant_ids,
-                channel_id=voice_channel.id if voice_channel else None
+                channel_id=voice_channel.id if voice_channel else None,
+                rsvp_status={}  # Initialize empty RSVP status
             )
             
             # Save meeting
@@ -623,9 +624,20 @@ class TaskCommands(commands.Cog):
                     inline=False
                 )
             
+            # First send the response to the interaction
             await interaction.response.send_message(embed=embed)
-            await self.bot.meeting_manager.update_board(interaction.guild)
             
+            # Then update the board
+            try:
+                await self.bot.meeting_manager.update_board(interaction.guild)
+            except Exception as e:
+                print(f"Error updating board: {e}")
+                # Send a follow-up message about the board update error
+                await interaction.followup.send(
+                    "Meeting was created, but there was an error updating the board. An admin may need to check the permissions.",
+                    ephemeral=True
+                )
+                
         except ValueError as e:
             await interaction.response.send_message(
                 f"❌ Invalid date/time format. Please use DD-MM-YYYY HH:MM",

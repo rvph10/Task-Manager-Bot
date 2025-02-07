@@ -5,6 +5,7 @@ from discord.ext import tasks, commands
 import discord
 from core.persistence import MeetingStore
 from core.models import Meeting
+from ui.meeting_views import RSVPView
 
 class MeetingManager:
     def __init__(self, bot: commands.Bot, storage: MeetingStore):
@@ -102,8 +103,11 @@ class MeetingManager:
         # Get members currently in the voice channel
         present_members = {member.id for member in channel.members}
         
+        # Get members who were supposed to attend
+        attend_members = [uid for uid, response in meeting.rsvp_status.items() if response == 'yes']
+        
         # Check who's missing
-        missing_members = set(meeting.participants) - present_members
+        missing_members = set(attend_members) - present_members
         
         if missing_members:
             try:
@@ -202,13 +206,6 @@ class MeetingManager:
                 color=color
             )
 
-            # Add space for readability
-            embed.add_field(
-                name="\u200b",
-                value="\u200b",
-                inline=False
-            )
-            
             # Add meeting details
             embed.add_field(
                 name="🕒 Date & Time",
@@ -240,21 +237,63 @@ class MeetingManager:
                             inline=True
                         )
             
-            # Add participants
-            if meeting.participants:
-                participants = [f"<@{uid}>" for uid in meeting.participants]
-                embed.add_field(
-                    name="📋 Invited Participants",
-                    value=", ".join(participants),
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name="📋 Invited Participants",
-                    value="@everyone",
-                    inline=False
-                )
+            # Add separator for readability
+            embed.add_field(name="​", value="​", inline=False)
+            
+            # Add RSVP summary
+            yes_count, no_count, maybe_count, pending_count = self.get_rsvp_summary(meeting)
+            
+            rsvp_summary = (
+                f"✅ Going: {yes_count}\n"
+                f"❔ Maybe: {maybe_count}\n"
+                f"❌ Not Going: {no_count}\n"
+                f"⏳ Awaiting Response: {pending_count}"
+            )
+            
+            embed.add_field(
+                name="📊 RSVP Status",
+                value=rsvp_summary,
+                inline=False
+            )
+            
+            # Add detailed RSVP lists
+            if meeting.rsvp_status:
+                # Going
+                going_users = [uid for uid, resp in meeting.rsvp_status.items() if resp == 'yes']
+                if going_users:
+                    embed.add_field(
+                        name="✅ Confirmed Attendees",
+                        value=", ".join(f"<@{uid}>" for uid in going_users),
+                        inline=False
+                    )
                 
+                # Maybe
+                maybe_users = [uid for uid, resp in meeting.rsvp_status.items() if resp == 'maybe']
+                if maybe_users:
+                    embed.add_field(
+                        name="❔ Tentative Attendees",
+                        value=", ".join(f"<@{uid}>" for uid in maybe_users),
+                        inline=False
+                    )
+                
+                # Not Going
+                not_going_users = [uid for uid, resp in meeting.rsvp_status.items() if resp == 'no']
+                if not_going_users:
+                    embed.add_field(
+                        name="❌ Not Attending",
+                        value=", ".join(f"<@{uid}>" for uid in not_going_users),
+                        inline=False
+                    )
+            
+            # Add pending responses
+            pending_users = [uid for uid in meeting.participants if uid not in meeting.rsvp_status]
+            if pending_users:
+                embed.add_field(
+                    name="⏳ Awaiting Response From",
+                    value=", ".join(f"<@{uid}>" for uid in pending_users),
+                    inline=False
+                )
+            
             # Add countdown
             if hours_until < 1:
                 countdown = f"⏰ Starting in {int(time_until.total_seconds() / 60)} minutes"
@@ -278,7 +317,38 @@ class MeetingManager:
                     icon_url=creator.display_avatar.url
                 )
             
-            await channel.send(embed=embed)
+            # Send embed with RSVP buttons
+            message = await channel.send(embed=embed)
+            
+            # Only add RSVP buttons if the meeting hasn't started yet
+            if time_until.total_seconds() > 0:
+                view = RSVPView(self, meeting.id)
+                self.bot.add_view(view)
+                await message.edit(view=view)
+
+    async def update_rsvp(self, meeting_id: int, user_id: int, response: str) -> None:
+        """Update a user's RSVP status for a meeting"""
+        meeting = self.storage.meetings.get(meeting_id)
+        if not meeting:
+            raise ValueError(f"Meeting {meeting_id} not found")
+            
+        if user_id not in meeting.participants:
+            raise ValueError("You are not invited to this meeting")
+            
+        if response not in ['yes', 'no', 'maybe']:
+            raise ValueError("Invalid RSVP response")
+            
+        meeting.rsvp_status[user_id] = response
+        self.storage._save()
+
+    def get_rsvp_summary(self, meeting) -> tuple:
+        """Get RSVP counts for a meeting"""
+        yes_count = sum(1 for status in meeting.rsvp_status.values() if status == 'yes')
+        no_count = sum(1 for status in meeting.rsvp_status.values() if status == 'no')
+        maybe_count = sum(1 for status in meeting.rsvp_status.values() if status == 'maybe')
+        pending_count = len(meeting.participants) - len(meeting.rsvp_status)
+        
+        return yes_count, no_count, maybe_count, pending_count
     
     @check_meetings.before_loop
     async def before_check_meetings(self):
