@@ -91,10 +91,11 @@ class TaskBoardEmbeds:
                     embed.add_field(name="\u200b", value="\u200b", inline=False)
 
             # Set footer for each embed
-            embed.set_footer(
-                text="Use !task_update [task_id] to change status • Use !task_help for more commands",
-                icon_url="https://cdn.discordapp.com/app-icons/1336810436984836226/ce2f15ca0258cffeecfe1fc6276ee28d.png?size=512"
-            )
+            if len(tasks) > tasks_per_embed:
+                embed.set_footer(
+                    text=f"Use reactions to navigate between pages • Use !task_help for more commands",
+                    icon_url="https://cdn.discordapp.com/app-icons/1336810436984836226/ce2f15ca0258cffeecfe1fc6276ee28d.png?size=512"
+                )
             
             embeds.append(embed)
         

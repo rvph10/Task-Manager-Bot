@@ -81,6 +81,97 @@ class TaskCommands(commands.Cog):
             )
 
     @app_commands.command(
+        name="reset_data",
+        description="Reset all tasks and meetings data and channels (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def reset_data(self, interaction: discord.Interaction):
+        try:
+            deleted_channels = []
+            
+            # Delete task board channel if it exists
+            if self.bot.task_store.task_channel_id:
+                task_channel = interaction.guild.get_channel(self.bot.task_store.task_channel_id)
+                if task_channel:
+                    await task_channel.delete()
+                    deleted_channels.append("Task Board")
+                self.bot.task_store.task_channel_id = None
+            
+            # Delete meeting dashboard channel if it exists
+            if self.bot.meeting_store.meeting_channel_id:
+                meeting_channel = interaction.guild.get_channel(self.bot.meeting_store.meeting_channel_id)
+                if meeting_channel:
+                    await meeting_channel.delete()
+                    deleted_channels.append("Meeting Dashboard")
+                self.bot.meeting_store.meeting_channel_id = None
+            
+            # Delete all task threads
+            for task in self.bot.task_store.tasks.values():
+                if task.thread_id:
+                    try:
+                        thread = await interaction.guild.fetch_channel(task.thread_id)
+                        if thread:
+                            await thread.delete()
+                    except (discord.NotFound, discord.Forbidden):
+                        pass
+            
+            # Clear tasks data
+            self.bot.task_store.tasks = {}
+            self.bot.task_store.task_counter = 0
+            self.bot.task_store._save()
+            
+            # Clear meetings data
+            self.bot.meeting_store.meetings = {}
+            self.bot.meeting_store.meeting_counter = 0
+            self.bot.meeting_store._save()
+            
+            # Create response embed
+            embed = discord.Embed(
+                title="🗑️ Data Reset Complete",
+                description="All data has been cleared and reset.",
+                color=discord.Color.red()
+            )
+            
+            # Add field for deleted channels
+            if deleted_channels:
+                embed.add_field(
+                    name="Deleted Channels",
+                    value="\n".join(f"✅ {channel}" for channel in deleted_channels),
+                    inline=False
+                )
+            
+            # Add field for deleted data
+            embed.add_field(
+                name="Deleted Data",
+                value="✅ All tasks\n✅ All meetings\n✅ Task threads",
+                inline=False
+            )
+            
+            embed.set_footer(text="Use /setup to create new channels")
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ An error occurred while resetting data: {str(e)}",
+                ephemeral=True
+            )
+
+    @reset_data.error
+    async def reset_data_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.MissingPermissions):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"❌ An error occurred: {str(error)}",
+                ephemeral=True
+            )
+
+
+    @app_commands.command(
         name="create",
         description="Create a new task"
     )
