@@ -1,5 +1,7 @@
+import io
+import json
 from typing import Optional
-from core.models import Meeting
+from core.models import Meeting, Task
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -81,40 +83,153 @@ class TaskCommands(commands.Cog):
             )
 
     @app_commands.command(
+        name="export_data",
+        description="Export all tasks and meetings data as a JSON file (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def export_data(self, interaction: discord.Interaction):
+        try:
+            # Create combined data dictionary
+            export_data = {
+                'tasks': {
+                    str(k): v.to_dict() 
+                    for k, v in self.bot.task_store.tasks.items()
+                },
+                'task_counter': self.bot.task_store.task_counter,
+                'task_channel_id': self.bot.task_store.task_channel_id,
+                'meetings': {
+                    str(k): v.to_dict() 
+                    for k, v in self.bot.meeting_store.meetings.items()
+                },
+                'meeting_counter': self.bot.meeting_store.meeting_counter,
+                'meeting_channel_id': self.bot.meeting_store.meeting_channel_id
+            }
+            
+            # Convert to JSON string with pretty formatting
+            json_data = json.dumps(export_data, indent=4)
+            
+            # Create a Discord file object
+            file = discord.File(
+                fp=io.StringIO(json_data),
+                filename=f"nibblix_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            )
+            
+            # Create response embed
+            embed = discord.Embed(
+                title="📤 Database Export",
+                description="Your database export is ready!",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="Contents",
+                value="✅ Tasks data\n✅ Meetings data\n✅ Channel configurations",
+                inline=False
+            )
+            
+            # Send the file with the embed
+            await interaction.response.send_message(
+                embed=embed,
+                file=file,
+                ephemeral=True
+            )
+            
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to export data: {str(e)}",
+                ephemeral=True
+            )
+
+    @app_commands.command(
+        name="import_data",
+        description="Import tasks and meetings data from a JSON file (Admin only)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def import_data(self, interaction: discord.Interaction, file: discord.Attachment):
+        try:
+            if not file.filename.endswith('.json'):
+                await interaction.response.send_message(
+                    "❌ Please upload a valid JSON file.",
+                    ephemeral=True
+                )
+                return
+                
+            # Download and parse the JSON file
+            json_content = await file.read()
+            if not file.filename.endswith('.json'):
+                await interaction.response.send_message(
+                    "❌ Please upload a valid JSON file.",
+                    ephemeral=True
+                )
+                return
+            
+            # Download and parse the JSON file
+            json_content = await file.read()
+            import_data = json.loads(json_content.decode('utf-8'))
+            
+            # Validate data structure
+            required_keys = ['tasks', 'task_counter', 'task_channel_id', 
+                           'meetings', 'meeting_counter', 'meeting_channel_id']
+            if not all(key in import_data for key in required_keys):
+                await interaction.response.send_message(
+                    "❌ Invalid database format. File is missing required data.",
+                    ephemeral=True
+                )
+                return
+            
+            # Import tasks data
+            self.bot.task_store.tasks = {
+                int(k): Task.from_dict(v) 
+                for k, v in import_data['tasks'].items()
+            }
+            self.bot.task_store.task_counter = import_data['task_counter']
+            self.bot.task_store.task_channel_id = import_data['task_channel_id']
+            self.bot.task_store._save()
+            
+            # Import meetings data
+            self.bot.meeting_store.meetings = {
+                int(k): Meeting.from_dict(v) 
+                for k, v in import_data['meetings'].items()
+            }
+            self.bot.meeting_store.meeting_counter = import_data['meeting_counter']
+            self.bot.meeting_store.meeting_channel_id = import_data['meeting_channel_id']
+            self.bot.meeting_store._save()
+            
+            # Create response embed
+            embed = discord.Embed(
+                title="📥 Database Import",
+                description="Database has been successfully imported!",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="Imported Data",
+                value=f"✅ {len(import_data['tasks'])} tasks\n✅ {len(import_data['meetings'])} meetings",
+                inline=False
+            )
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # Update both boards
+            await self.bot.task_manager.update_board(interaction.guild)
+            await self.bot.meeting_manager.update_board(interaction.guild)
+            
+        except json.JSONDecodeError:
+            await interaction.response.send_message(
+                "❌ Invalid JSON file format.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to import data: {str(e)}",
+                ephemeral=True
+            )
+
+    @app_commands.command(
         name="reset_data",
-        description="Reset all tasks and meetings data and channels (Admin only)"
+        description="Reset all tasks and meetings data (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def reset_data(self, interaction: discord.Interaction):
         try:
-            deleted_channels = []
-            
-            # Delete task board channel if it exists
-            if self.bot.task_store.task_channel_id:
-                task_channel = interaction.guild.get_channel(self.bot.task_store.task_channel_id)
-                if task_channel:
-                    await task_channel.delete()
-                    deleted_channels.append("Task Board")
-                self.bot.task_store.task_channel_id = None
-            
-            # Delete meeting dashboard channel if it exists
-            if self.bot.meeting_store.meeting_channel_id:
-                meeting_channel = interaction.guild.get_channel(self.bot.meeting_store.meeting_channel_id)
-                if meeting_channel:
-                    await meeting_channel.delete()
-                    deleted_channels.append("Meeting Dashboard")
-                self.bot.meeting_store.meeting_channel_id = None
-            
-            # Delete all task threads
-            for task in self.bot.task_store.tasks.values():
-                if task.thread_id:
-                    try:
-                        thread = await interaction.guild.fetch_channel(task.thread_id)
-                        if thread:
-                            await thread.delete()
-                    except (discord.NotFound, discord.Forbidden):
-                        pass
-            
             # Clear tasks data
             self.bot.task_store.tasks = {}
             self.bot.task_store.task_counter = 0
@@ -132,24 +247,18 @@ class TaskCommands(commands.Cog):
                 color=discord.Color.red()
             )
             
-            # Add field for deleted channels
-            if deleted_channels:
-                embed.add_field(
-                    name="Deleted Channels",
-                    value="\n".join(f"✅ {channel}" for channel in deleted_channels),
-                    inline=False
-                )
-            
             # Add field for deleted data
             embed.add_field(
-                name="Deleted Data",
-                value="✅ All tasks\n✅ All meetings\n✅ Task threads",
+                name="Cleared Data",
+                value="✅ All tasks\n✅ All meetings",
                 inline=False
             )
             
-            embed.set_footer(text="Use /setup to create new channels")
-            
             await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # Update both boards to show empty state
+            await self.bot.task_manager.update_board(interaction.guild)
+            await self.bot.meeting_manager.update_board(interaction.guild)
             
         except Exception as e:
             await interaction.response.send_message(
