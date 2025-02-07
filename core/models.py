@@ -3,6 +3,29 @@ from typing import List, Optional
 from datetime import datetime
 
 @dataclass
+class Meeting:
+    id: int
+    title: str
+    description: str
+    start_time: datetime
+    duration: int
+    created_by: int
+    participants: List[int]
+    channel_id: Optional[int] = None
+    calendar_event_id: Optional[str] = None
+    reminder_sent: bool = False
+    
+    def to_dict(self) -> dict:
+        data = asdict(self)
+        data['start_time'] = self.start_time.isoformat()
+        return data
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Meeting':
+        data['start_time'] = datetime.fromisoformat(data['start_time'])
+        return cls(**data)
+
+@dataclass
 class Task:
     id: int
     title: str

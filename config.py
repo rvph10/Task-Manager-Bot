@@ -5,3 +5,4 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TASKS_FILE = "tasks_data.json"
+MEETINGS_FILE = "meetings_data.json"

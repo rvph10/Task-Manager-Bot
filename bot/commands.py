@@ -1,4 +1,5 @@
 from typing import Optional
+from core.models import Meeting
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -14,25 +15,68 @@ class TaskCommands(commands.Cog):
         
     @app_commands.command(
         name="setup",
-        description="Set up the task management channel (Admin only)"
+        description="Set up the task and meeting management channels (Admin only)"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def setup_tasks(self, interaction: discord.Interaction):
         try:
-            channel = await self.bot.task_manager.setup_board_channel(interaction.guild)
-            await interaction.response.send_message(
-                f"Task board channel created: {channel.mention}",
-                ephemeral=True
+            # Create task board channel
+            task_channel = await self.bot.task_manager.setup_board_channel(interaction.guild)
+            
+            # Create meeting dashboard channel
+            overwrites = {
+                interaction.guild.default_role: discord.PermissionOverwrite(
+                    send_messages=False,
+                    add_reactions=False,
+                    create_public_threads=False,
+                    create_private_threads=False,
+                    send_messages_in_threads=False
+                ),
+                interaction.guild.me: discord.PermissionOverwrite(
+                    send_messages=True,
+                    manage_messages=True,
+                    manage_channels=True,
+                    add_reactions=True
+                )
+            }
+            
+            meeting_channel = await interaction.guild.create_text_channel(
+                'meeting-dashboard',
+                overwrites=overwrites
             )
+            self.bot.meeting_store.set_channel_id(meeting_channel.id)
+            
+            # Send success message
+            embed = discord.Embed(
+                title="✅ Setup Complete",
+                description="Task and meeting management channels have been created.",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="📋 Task Board",
+                value=task_channel.mention,
+                inline=True
+            )
+            embed.add_field(
+                name="📅 Meeting Dashboard",
+                value=meeting_channel.mention,
+                inline=True
+            )
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+            # Update both boards
             await self.bot.task_manager.update_board(interaction.guild)
+            await self.bot.meeting_manager.update_board(interaction.guild)
+            
         except discord.errors.Forbidden:
             await interaction.response.send_message(
-                "❌ Missing permissions to create the channel.",
+                "❌ Missing permissions to create the channels.",
                 ephemeral=True
             )
         except Exception as e:
             await interaction.response.send_message(
-                f"❌ Failed to set up task board: {str(e)}",
+                f"❌ Failed to set up channels: {str(e)}",
                 ephemeral=True
             )
 
@@ -481,5 +525,114 @@ class TaskCommands(commands.Cog):
             print(f"Command error: {error}")
             await interaction.response.send_message(
                 "❌ An error occurred while processing the command.",
+                ephemeral=True
+            )
+
+    @app_commands.command(
+        name="create_meeting",
+        description="Schedule a new meeting"
+    )
+    @app_commands.describe(
+        title="Meeting title",
+        description="Meeting description",
+        start_time="Start time (format: DD-MM-YYYY HH:MM)",
+        duration="Duration in minutes",
+        participants="Meeting participants (mention them)",
+        voice_channel="Voice channel for the meeting (optional)"
+    )
+    async def create_meeting(
+        self,
+        interaction: discord.Interaction,
+        title: str,
+        description: str,
+        start_time: str,
+        duration: int,
+        participants: str,
+        voice_channel: discord.VoiceChannel = None
+    ):
+        try:
+            # Parse start time
+            start_dt = datetime.strptime(start_time, "%d-%m-%Y %H:%M")
+            start_dt = self.bot.meeting_manager.belgian_tz.localize(start_dt)
+            
+            # Parse participants
+            participant_ids = []
+            mentions = participants.split()
+            
+            for mention in mentions:
+                stripped_mention = mention.strip('<@!>')
+                
+                if mention in ['@everyone', '@here']:
+                    participant_ids = [m.id for m in interaction.guild.members if not m.bot]
+                    break
+                    
+                if stripped_mention.isdigit():
+                    user_id = int(stripped_mention)
+                    member = interaction.guild.get_member(user_id)
+                    if member and not member.bot:
+                        participant_ids.append(user_id)
+            
+            # Create meeting
+            meeting = Meeting(
+                id=0,  # Will be set by storage
+                title=title,
+                description=description,
+                start_time=start_dt,
+                duration=duration,
+                created_by=interaction.user.id,
+                participants=participant_ids,
+                channel_id=voice_channel.id if voice_channel else None
+            )
+            
+            # Save meeting
+            self.bot.meeting_store.add_meeting(meeting)
+            
+            # Create response embed
+            embed = discord.Embed(
+                title="✅ Meeting Scheduled",
+                description=f"Meeting has been scheduled successfully",
+                color=discord.Color.green()
+            )
+            
+            embed.add_field(name="Title", value=meeting.title, inline=False)
+            embed.add_field(name="Description", value=meeting.description, inline=False)
+            embed.add_field(
+                name="📅 Date & Time", 
+                value=meeting.start_time.strftime("%Y-%m-%d %H:%M"),
+                inline=True
+            )
+            embed.add_field(name="⏱️ Duration", value=f"{meeting.duration} minutes", inline=True)
+            
+            if voice_channel:
+                embed.add_field(
+                    name="🔊 Voice Channel",
+                    value=voice_channel.mention,
+                    inline=False
+                )
+            
+            if participant_ids:
+                embed.add_field(
+                    name="👥 Participants",
+                    value=", ".join([f"<@{uid}>" for uid in participant_ids]),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="👥 Participants",
+                    value="@everyone",
+                    inline=False
+                )
+            
+            await interaction.response.send_message(embed=embed)
+            await self.bot.meeting_manager.update_board(interaction.guild)
+            
+        except ValueError as e:
+            await interaction.response.send_message(
+                f"❌ Invalid date/time format. Please use DD-MM-YYYY HH:MM",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ An error occurred: {str(e)}",
                 ephemeral=True
             )
